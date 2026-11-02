@@ -1,0 +1,20 @@
+services:
+  db_transaction:
+    image: postgres:16
+    container_name: db_transaction
+    environment:
+      POSTGRES_DB: db_transaction
+      POSTGRES_USER: txapp
+      POSTGRES_PASSWORD: txapp
+    ports:
+      - "5436:5432"
+    volumes:
+      - db_transaction_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U txapp -d db_transaction"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db_transaction_data:
