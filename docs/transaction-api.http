@@ -1,0 +1,58 @@
+# Comment tester à la main
+# 1. docker compose up -d (Postgres localhost:5436), puis mvnw.cmd spring-boot:run (port 8083).
+# 2. user-service sur http://localhost:8081 : POST /api/auth/login. Le jeton a iss http://localhost:8081 et sub = UUID.
+# 3. wallet-service sur http://localhost:8082 : le wallet du sub doit exister et être ACTIVE, sinon 404 ou 409.
+# 4. Idempotency-Key de 8 à 64 caractères. Même clé et même montant : 200, sans rejouer une transaction finale. Autre montant : 409 IDEMPOTENCY_CONFLICT.
+# 5. Arrêter la banque (port 9081). POST /topup : 202, status PENDING. Relancer la banque, attendre un peu plus de 2 minutes : la reprise rejoue le débit puis le crédit wallet.
+# 6. GET /api/transactions (plus récentes d'abord), puis GET /api/transactions/{reference}. bankAccount montre seulement les 4 derniers chiffres.
+# 7. GET /actuator/health sans jeton : 200.
+
+### Connexion user-service
+POST http://localhost:8081/api/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "ada@example.com",
+  "password": "Motdepasse1"
+}
+
+> {%
+client.global.set("accessToken", response.body.accessToken);
+%}
+
+### Topup
+POST http://localhost:8083/api/transactions/topup
+Authorization: Bearer {{accessToken}}
+Idempotency-Key: topup-1500
+Content-Type: application/json
+Accept: application/json
+
+{
+  "amount": "1500.00"
+}
+
+> {%
+client.global.set("reference", response.body.reference);
+%}
+
+### Retrait
+POST http://localhost:8083/api/transactions/withdraw
+Authorization: Bearer {{accessToken}}
+Idempotency-Key: withdraw-1500
+Content-Type: application/json
+Accept: application/json
+
+{
+  "amount": "1500.00"
+}
+
+### Historique
+GET http://localhost:8083/api/transactions?type=TOPUP&status=SUCCESS&page=0&size=20
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+### Détail
+GET http://localhost:8083/api/transactions/{{reference}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
