@@ -1,5 +1,7 @@
 package com.mywallet.transaction.controller;
 
+import java.util.UUID;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.mywallet.transaction.dto.TransactionPage;
 import com.mywallet.transaction.dto.TransactionResponse;
+import com.mywallet.transaction.dto.TransferPreviewResponse;
 import com.mywallet.transaction.entity.TransactionStatus;
 import com.mywallet.transaction.entity.TransactionType;
 import com.mywallet.transaction.security.CurrentUser;
@@ -37,14 +40,26 @@ public class TransactionController {
 	public ResponseEntity<TransactionResponse> topup(
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody(required = false) JsonNode body) {
-		return respond(transactions.submit(currentUser.id(), idempotencyKey, TransactionType.TOPUP, body));
+		return respond(currentUser.id(), transactions.submit(currentUser.id(), idempotencyKey, TransactionType.TOPUP, body));
 	}
 
 	@PostMapping("/withdraw")
 	public ResponseEntity<TransactionResponse> withdraw(
 			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody(required = false) JsonNode body) {
-		return respond(transactions.submit(currentUser.id(), idempotencyKey, TransactionType.WITHDRAW, body));
+		return respond(currentUser.id(), transactions.submit(currentUser.id(), idempotencyKey, TransactionType.WITHDRAW, body));
+	}
+
+	@PostMapping("/transfer/preview")
+	public TransferPreviewResponse previewTransfer(@RequestBody(required = false) JsonNode body) {
+		return transactions.previewTransfer(currentUser.id(), body);
+	}
+
+	@PostMapping("/transfer")
+	public ResponseEntity<TransactionResponse> transfer(
+			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+			@RequestBody(required = false) JsonNode body) {
+		return respond(currentUser.id(), transactions.submitTransfer(currentUser.id(), idempotencyKey, body));
 	}
 
 	@GetMapping
@@ -61,8 +76,8 @@ public class TransactionController {
 		return transactions.get(currentUser.id(), reference);
 	}
 
-	private static ResponseEntity<TransactionResponse> respond(Submission submission) {
-		TransactionResponse body = TransactionResponse.from(submission.transaction());
+	private ResponseEntity<TransactionResponse> respond(UUID viewerId, Submission submission) {
+		TransactionResponse body = transactions.present(submission.transaction(), viewerId);
 		if (!submission.created()) {
 			return ResponseEntity.ok(body);
 		}

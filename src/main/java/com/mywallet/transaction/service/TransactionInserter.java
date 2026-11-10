@@ -58,4 +58,34 @@ public class TransactionInserter {
 		return saved;
 	}
 
+	@Transactional
+	public WalletTransaction insertTransfer(
+			UUID userId,
+			String idempotencyKey,
+			BigDecimal amount,
+			UUID counterpartyUserId,
+			String counterpartyPhone,
+			String senderPhone,
+			String senderName,
+			String requestHash) {
+		Instant now = clock.instant();
+		UUID id = UUID.randomUUID();
+		WalletTransaction transaction = WalletTransaction.transfer(
+				id,
+				"TX-" + id,
+				userId,
+				idempotencyKey,
+				amount,
+				FEE,
+				counterpartyUserId,
+				counterpartyPhone,
+				senderPhone,
+				senderName,
+				requestHash,
+				now);
+		WalletTransaction saved = transactions.saveAndFlush(transaction);
+		steps.save(TransactionStepLog.entry(saved.getId(), TransactionSteps.CREATED, "RECORDED", null, now));
+		return saved;
+	}
+
 }

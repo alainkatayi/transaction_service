@@ -61,8 +61,20 @@ public class WalletTransaction implements Persistable<UUID> {
 	private String failureReason;
 
 	@JdbcTypeCode(SqlTypes.CHAR)
-	@Column(name = "bank_account", nullable = false, updatable = false, length = 12)
+	@Column(name = "bank_account", updatable = false, length = 12)
 	private String bankAccount;
+
+	@Column(name = "counterparty_user_id", updatable = false)
+	private UUID counterpartyUserId;
+
+	@Column(name = "counterparty_phone", updatable = false, length = 20)
+	private String counterpartyPhone;
+
+	@Column(name = "sender_phone", updatable = false, length = 20)
+	private String senderPhone;
+
+	@Column(name = "sender_name", updatable = false, length = 201)
+	private String senderName;
 
 	@JdbcTypeCode(SqlTypes.CHAR)
 	@Column(name = "request_hash", nullable = false, updatable = false, length = 64)
@@ -94,6 +106,10 @@ public class WalletTransaction implements Persistable<UUID> {
 			BigDecimal amount,
 			BigDecimal fee,
 			String bankAccount,
+			UUID counterpartyUserId,
+			String counterpartyPhone,
+			String senderPhone,
+			String senderName,
 			String requestHash,
 			Instant now) {
 		this.id = id;
@@ -106,6 +122,10 @@ public class WalletTransaction implements Persistable<UUID> {
 		this.status = TransactionStatus.PENDING;
 		this.step = "CREATED";
 		this.bankAccount = bankAccount;
+		this.counterpartyUserId = counterpartyUserId;
+		this.counterpartyPhone = counterpartyPhone;
+		this.senderPhone = senderPhone;
+		this.senderName = senderName;
 		this.requestHash = requestHash;
 		this.createdAt = now;
 		this.updatedAt = now;
@@ -132,6 +152,40 @@ public class WalletTransaction implements Persistable<UUID> {
 				amount,
 				fee,
 				bankAccount,
+				null,
+				null,
+				null,
+				null,
+				requestHash,
+				now);
+	}
+
+	public static WalletTransaction transfer(
+			UUID id,
+			String reference,
+			UUID userId,
+			String idempotencyKey,
+			BigDecimal amount,
+			BigDecimal fee,
+			UUID counterpartyUserId,
+			String counterpartyPhone,
+			String senderPhone,
+			String senderName,
+			String requestHash,
+			Instant now) {
+		return new WalletTransaction(
+				id,
+				reference,
+				userId,
+				idempotencyKey,
+				TransactionType.TRANSFER,
+				amount,
+				fee,
+				null,
+				counterpartyUserId,
+				counterpartyPhone,
+				senderPhone,
+				senderName,
 				requestHash,
 				now);
 	}
@@ -192,6 +246,22 @@ public class WalletTransaction implements Persistable<UUID> {
 		return bankAccount == null ? null : bankAccount.trim();
 	}
 
+	public UUID getCounterpartyUserId() {
+		return counterpartyUserId;
+	}
+
+	public String getCounterpartyPhone() {
+		return counterpartyPhone;
+	}
+
+	public String getSenderPhone() {
+		return senderPhone;
+	}
+
+	public String getSenderName() {
+		return senderName;
+	}
+
 	public String getRequestHash() {
 		return requestHash == null ? null : requestHash.trim();
 	}
@@ -204,43 +274,9 @@ public class WalletTransaction implements Persistable<UUID> {
 		return updatedAt;
 	}
 
-	public void markStep(String step, Instant now) {
-		this.step = step;
-		this.updatedAt = now;
-	}
-
-	public void markFailed(String step, String reason, Instant now) {
-		this.status = TransactionStatus.FAILED;
-		this.step = step;
-		this.failureReason = bound(reason);
-		this.updatedAt = now;
-	}
-
-	public void markSucceeded(Instant now) {
-		this.status = TransactionStatus.SUCCESS;
-		this.step = "COMPLETED";
-		this.failureReason = null;
-		this.updatedAt = now;
-	}
-
-	public void markReversed(String reason, Instant now) {
-		this.status = TransactionStatus.REVERSED;
-		this.step = "BANK_REVERSAL";
-		this.failureReason = bound(reason);
-		this.updatedAt = now;
-	}
-
 	@Override
 	public String toString() {
 		return "WalletTransaction{reference=" + reference + ", status=" + status + ", step=" + step + "}";
-	}
-
-	private static String bound(String reason) {
-		String value = reason == null ? "FAILED" : reason.trim();
-		if (value.length() > 40) {
-			return value.substring(0, 40);
-		}
-		return value;
 	}
 
 }

@@ -48,7 +48,10 @@ public class TransactionMachine {
 		if (transaction.getType() == TransactionType.TOPUP) {
 			return topup(transaction);
 		}
-		return withdraw(transaction);
+		if (transaction.getType() == TransactionType.WITHDRAW) {
+			return withdraw(transaction);
+		}
+		return transfer(transaction);
 	}
 
 	private boolean topup(WalletTransaction transaction) {
@@ -174,6 +177,78 @@ public class TransactionMachine {
 
 	private boolean reverseWallet(WalletTransaction transaction) {
 		RemoteOutcome outcome = wallets.reverse(transaction.getUserId(), transaction.getReference());
+		if (!outcome.succeeded()) {
+			return false;
+		}
+		transitions.transition(
+				transaction.getId(),
+				TransactionSteps.REVERSE_PENDING,
+				TransactionStatus.REVERSED,
+				TransactionSteps.REVERSED,
+				transaction.getFailureReason());
+		return false;
+	}
+
+	private boolean transfer(WalletTransaction transaction) {
+		return switch (transaction.getStep()) {
+			case TransactionSteps.CREATED -> debitTransferSender(transaction);
+			case TransactionSteps.WALLET_DEBITED -> creditTransferRecipient(transaction);
+			case TransactionSteps.REVERSE_PENDING -> reverseTransferSender(transaction);
+			default -> false;
+		};
+	}
+
+	private boolean debitTransferSender(WalletTransaction transaction) {
+		RemoteOutcome outcome = wallets.transferDebit(
+				transaction.getUserId(),
+				transaction.getReference(),
+				transaction.getAmount());
+		if (outcome.succeeded()) {
+			return transitions.transition(
+					transaction.getId(),
+					TransactionSteps.CREATED,
+					TransactionStatus.PENDING,
+					TransactionSteps.WALLET_DEBITED,
+					null);
+		}
+		if (outcome.wasRejected()) {
+			transitions.transition(
+					transaction.getId(),
+					TransactionSteps.CREATED,
+					TransactionStatus.FAILED,
+					TransactionSteps.FAILED,
+					outcome.reason());
+		}
+		return false;
+	}
+
+	private boolean creditTransferRecipient(WalletTransaction transaction) {
+		RemoteOutcome outcome = wallets.transferCredit(
+				transaction.getCounterpartyUserId(),
+				transaction.getReference(),
+				transaction.getAmount());
+		if (outcome.succeeded()) {
+			transitions.transition(
+					transaction.getId(),
+					TransactionSteps.WALLET_DEBITED,
+					TransactionStatus.SUCCESS,
+					TransactionSteps.RECIPIENT_CREDITED,
+					null);
+			return false;
+		}
+		if (outcome.wasRejected()) {
+			return transitions.transition(
+					transaction.getId(),
+					TransactionSteps.WALLET_DEBITED,
+					TransactionStatus.PENDING,
+					TransactionSteps.REVERSE_PENDING,
+					outcome.reason());
+		}
+		return false;
+	}
+
+	private boolean reverseTransferSender(WalletTransaction transaction) {
+		RemoteOutcome outcome = wallets.transferReverse(transaction.getUserId(), transaction.getReference());
 		if (!outcome.succeeded()) {
 			return false;
 		}

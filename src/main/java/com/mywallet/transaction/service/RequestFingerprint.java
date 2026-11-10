@@ -14,7 +14,14 @@ public final class RequestFingerprint {
 	}
 
 	public static String hash(TransactionType type, BigDecimal amount) {
-		String canonical = type.name() + amount.toPlainString();
+		return digest(type.name() + amount.toPlainString());
+	}
+
+	public static String transferHash(BigDecimal amount, String recipientPhone) {
+		return digest(TransactionType.TRANSFER.name() + amount.toPlainString() + recipientPhone);
+	}
+
+	private static String digest(String canonical) {
 		try {
 			byte[] digest = MessageDigest.getInstance("SHA-256")
 					.digest(canonical.getBytes(StandardCharsets.UTF_8));

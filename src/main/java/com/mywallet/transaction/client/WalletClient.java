@@ -78,6 +78,24 @@ public class WalletClient {
 		return movement("/internal/wallets/{userId}/reverse", userId, new ReversePayload(transactionRef));
 	}
 
+	public RemoteOutcome transferDebit(UUID userId, String transactionRef, BigDecimal amount) {
+		return movement(
+				"/internal/wallets/{userId}/transfer/debit",
+				userId,
+				new MovementPayload(transactionRef, amount.toPlainString()));
+	}
+
+	public RemoteOutcome transferCredit(UUID userId, String transactionRef, BigDecimal amount) {
+		return movement(
+				"/internal/wallets/{userId}/transfer/credit",
+				userId,
+				new MovementPayload(transactionRef, amount.toPlainString()));
+	}
+
+	public RemoteOutcome transferReverse(UUID userId, String transactionRef) {
+		return movement("/internal/wallets/{userId}/transfer/reverse", userId, new ReversePayload(transactionRef));
+	}
+
 	private RemoteOutcome movement(String path, UUID userId, Object payload) {
 		try {
 			MovementBody body = wallet.post()

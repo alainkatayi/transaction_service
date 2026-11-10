@@ -59,6 +59,36 @@ public class GlobalExceptionHandler {
 		return problem(HttpStatus.CONFLICT, "Conflit", "Le wallet n'est pas actif.", "WALLET_NOT_ACTIVE", request);
 	}
 
+	@ExceptionHandler(RecipientNotFoundException.class)
+	public ProblemDetail recipientNotFound(HttpServletRequest request) {
+		return problem(
+				HttpStatus.NOT_FOUND,
+				"Introuvable",
+				"Aucun destinataire trouvé pour ce numéro.",
+				"RECIPIENT_NOT_FOUND",
+				request);
+	}
+
+	@ExceptionHandler(SelfTransferException.class)
+	public ProblemDetail selfTransfer(HttpServletRequest request) {
+		return problem(
+				HttpStatus.BAD_REQUEST,
+				"Requête invalide",
+				"Vous ne pouvez pas vous envoyer de l’argent à vous-même.",
+				"SELF_TRANSFER",
+				request);
+	}
+
+	@ExceptionHandler(RecipientWalletNotActiveException.class)
+	public ProblemDetail recipientWalletNotActive(HttpServletRequest request) {
+		return problem(
+				HttpStatus.CONFLICT,
+				"Conflit",
+				"Le portefeuille du destinataire n’est pas actif.",
+				"RECIPIENT_WALLET_NOT_ACTIVE",
+				request);
+	}
+
 	@ExceptionHandler(IdempotencyConflictException.class)
 	public ProblemDetail idempotency(HttpServletRequest request) {
 		return problem(

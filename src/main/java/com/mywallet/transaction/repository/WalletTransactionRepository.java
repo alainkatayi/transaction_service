@@ -20,18 +20,49 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
 
 	Optional<WalletTransaction> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
 
-	Optional<WalletTransaction> findByUserIdAndReference(UUID userId, String reference);
+	@Query("""
+			select t from WalletTransaction t
+			where t.reference = :reference
+			  and (t.userId = :userId or t.counterpartyUserId = :userId)
+			""")
+	Optional<WalletTransaction> findVisibleByReference(@Param("userId") UUID userId, @Param("reference") String reference);
 
-	Page<WalletTransaction> findByUserId(UUID userId, Pageable pageable);
+	@Query("""
+			select t from WalletTransaction t
+			where t.userId = :userId or t.counterpartyUserId = :userId
+			""")
+	Page<WalletTransaction> findVisible(@Param("userId") UUID userId, Pageable pageable);
 
-	Page<WalletTransaction> findByUserIdAndType(UUID userId, TransactionType type, Pageable pageable);
+	@Query("""
+			select t from WalletTransaction t
+			where (t.userId = :userId or t.counterpartyUserId = :userId)
+			  and t.type = :type
+			""")
+	Page<WalletTransaction> findVisibleByType(
+			@Param("userId") UUID userId,
+			@Param("type") TransactionType type,
+			Pageable pageable);
 
-	Page<WalletTransaction> findByUserIdAndStatus(UUID userId, TransactionStatus status, Pageable pageable);
+	@Query("""
+			select t from WalletTransaction t
+			where (t.userId = :userId or t.counterpartyUserId = :userId)
+			  and t.status = :status
+			""")
+	Page<WalletTransaction> findVisibleByStatus(
+			@Param("userId") UUID userId,
+			@Param("status") TransactionStatus status,
+			Pageable pageable);
 
-	Page<WalletTransaction> findByUserIdAndTypeAndStatus(
-			UUID userId,
-			TransactionType type,
-			TransactionStatus status,
+	@Query("""
+			select t from WalletTransaction t
+			where (t.userId = :userId or t.counterpartyUserId = :userId)
+			  and t.type = :type
+			  and t.status = :status
+			""")
+	Page<WalletTransaction> findVisibleByTypeAndStatus(
+			@Param("userId") UUID userId,
+			@Param("type") TransactionType type,
+			@Param("status") TransactionStatus status,
 			Pageable pageable);
 
 	List<WalletTransaction> findTop100ByStatusAndUpdatedAtBeforeOrderByUpdatedAtAsc(

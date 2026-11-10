@@ -11,8 +11,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import com.mywallet.transaction.client.UserClient;
+import com.mywallet.transaction.client.UserClient.UserView;
 import com.mywallet.transaction.dto.TransactionPage;
 import com.mywallet.transaction.dto.TransactionResponse;
+import com.mywallet.transaction.dto.TransferPreviewResponse;
 import com.mywallet.transaction.entity.TransactionStatus;
 import com.mywallet.transaction.entity.TransactionType;
 import com.mywallet.transaction.entity.WalletTransaction;
@@ -30,14 +33,20 @@ public class TransactionService {
 	private final WalletTransactionRepository transactions;
 	private final TransactionCreator creator;
 	private final TransactionMachine machine;
+	private final TransferSupport transfers;
+	private final UserClient users;
 
 	public TransactionService(
 			WalletTransactionRepository transactions,
 			TransactionCreator creator,
-			TransactionMachine machine) {
+			TransactionMachine machine,
+			TransferSupport transfers,
+			UserClient users) {
 		this.transactions = transactions;
 		this.creator = creator;
 		this.machine = machine;
+		this.transfers = transfers;
+		this.users = users;
 	}
 
 	public Submission submit(UUID userId, String idempotencyKey, TransactionType type, JsonNode body) {
@@ -53,7 +62,35 @@ public class TransactionService {
 			return Submission.created(machine.run(created.getId()));
 		}
 		catch (DataIntegrityViolationException exception) {
-			// Une transaction ayant rencontré une erreur de base est condamnée au rollback.
+			if (!idempotencyConstraint(exception)) {
+				throw new IllegalStateException("enregistrement");
+			}
+			WalletTransaction winner = transactions.findByUserIdAndIdempotencyKey(userId, key)
+					.orElseThrow(() -> new IllegalStateException("enregistrement"));
+			return sameRequest(winner, hash);
+		}
+	}
+
+	public TransferPreviewResponse previewTransfer(UUID userId, JsonNode body) {
+		BigDecimal amount = amount(body);
+		String phone = text(body, "recipientPhone");
+		return transfers.preview(userId, phone, amount);
+	}
+
+	public Submission submitTransfer(UUID userId, String idempotencyKey, JsonNode body) {
+		String key = key(idempotencyKey);
+		BigDecimal amount = amount(body);
+		String phone = TransferSupport.normalizePhone(text(body, "recipientPhone"));
+		String hash = RequestFingerprint.transferHash(amount, phone);
+		Optional<WalletTransaction> existing = transactions.findByUserIdAndIdempotencyKey(userId, key);
+		if (existing.isPresent()) {
+			return sameRequest(existing.get(), hash);
+		}
+		try {
+			WalletTransaction created = creator.createTransfer(userId, key, amount, phone, hash);
+			return Submission.created(machine.run(created.getId()));
+		}
+		catch (DataIntegrityViolationException exception) {
 			if (!idempotencyConstraint(exception)) {
 				throw new IllegalStateException("enregistrement");
 			}
@@ -73,7 +110,7 @@ public class TransactionService {
 		PageRequest request = PageRequest.of(page, limited, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
 		Page<WalletTransaction> result = search(userId, parsedType, parsedStatus, request);
 		return new TransactionPage(
-				result.getContent().stream().map(TransactionResponse::from).toList(),
+				result.getContent().stream().map(tx -> present(tx, userId)).toList(),
 				result.getNumber(),
 				result.getSize(),
 				result.getTotalElements());
@@ -83,9 +120,27 @@ public class TransactionService {
 		if (reference == null || reference.isBlank() || reference.length() > 64) {
 			throw new TransactionNotFoundException();
 		}
-		return transactions.findByUserIdAndReference(userId, reference)
-				.map(TransactionResponse::from)
+		return transactions.findVisibleByReference(userId, reference)
+				.map(tx -> present(tx, userId))
 				.orElseThrow(TransactionNotFoundException::new);
+	}
+
+	public TransactionResponse present(WalletTransaction transaction, UUID viewerId) {
+		String senderPhone = transaction.getSenderPhone();
+		String senderName = transaction.getSenderName();
+		if (transaction.getType() == TransactionType.TRANSFER
+				&& (senderPhone == null || senderPhone.isBlank())
+				&& viewerId.equals(transaction.getCounterpartyUserId())) {
+			try {
+				UserView sender = users.byId(transaction.getUserId());
+				senderPhone = sender.phone();
+				senderName = (sender.firstName() + " " + sender.lastName()).trim();
+			}
+			catch (RuntimeException ignored) {
+				// Ancienne ligne sans expéditeur stocké : on garde ce qu’on a.
+			}
+		}
+		return TransactionResponse.forViewer(transaction, viewerId, senderPhone, senderName);
 	}
 
 	private Page<WalletTransaction> search(
@@ -94,15 +149,15 @@ public class TransactionService {
 			TransactionStatus status,
 			PageRequest request) {
 		if (type != null && status != null) {
-			return transactions.findByUserIdAndTypeAndStatus(userId, type, status, request);
+			return transactions.findVisibleByTypeAndStatus(userId, type, status, request);
 		}
 		if (type != null) {
-			return transactions.findByUserIdAndType(userId, type, request);
+			return transactions.findVisibleByType(userId, type, request);
 		}
 		if (status != null) {
-			return transactions.findByUserIdAndStatus(userId, status, request);
+			return transactions.findVisibleByStatus(userId, status, request);
 		}
-		return transactions.findByUserId(userId, request);
+		return transactions.findVisible(userId, request);
 	}
 
 	private static Submission sameRequest(WalletTransaction existing, String hash) {
@@ -123,6 +178,17 @@ public class TransactionService {
 			throw new ValidationException();
 		}
 		return value;
+	}
+
+	private static String text(JsonNode body, String field) {
+		if (body == null || !body.isObject()) {
+			throw new ValidationException();
+		}
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull() || !node.isString()) {
+			throw new ValidationException();
+		}
+		return node.asString();
 	}
 
 	private static BigDecimal amount(JsonNode body) {
